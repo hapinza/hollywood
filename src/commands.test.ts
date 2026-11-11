@@ -575,7 +575,9 @@ test("generate rejects sources without Hollywood exports", async () => {
 				},
 				{ writeOut: () => {} },
 			),
-		new RegExp(`no Hollywood actions or workflows exported by: ${sourcePath}`),
+			{
+			message: `no Hollywood actions or workflows exported by: ${sourcePath}`,
+			}
 	);
 });
 

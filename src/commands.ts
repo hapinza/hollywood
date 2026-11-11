@@ -170,7 +170,7 @@ export const createCli = (
 
 export const generate = async (options: GenerateOptions, io: CliIo): Promise<void> => {
 	const resolved = await resolveGenerateOptions(options);
-	const sourceFiles = await resolveSourceFiles(resolved.sources);
+	const sourceFiles = await resolveSourceFiles(resolved.sources, resolved.output);
 	const files = await discoverGeneratedFiles(sourceFiles, resolved);
 	const results = await writeGeneratedFiles(files, { outputDir: resolved.output });
 	for (const result of results) {
@@ -218,9 +218,10 @@ export const check = async (options: CheckOptions, io: CliIo): Promise<void> => 
 		await checkWorkflowSecurity(resolved, io);
 	}
 	if (options.rule !== undefined) {
-		const sources = await resolveSourceFiles([
-			`${resolve(resolved.output, resolved.sourceRoot)}/**/*.ts`,
-		]);
+		const sources = await resolveSourceFiles(
+			[defaultSourceGlob(resolved.output, resolved.sourceRoot)],
+			resolved.output,
+		);
 		for (const source of sources) {
 			const module = await loadHollywoodModule(source);
 			for (const value of Object.values(module)) {
@@ -279,14 +280,13 @@ type ResolvedCheckOptions = Readonly<{
 
 const checkGeneratedFiles = async (options: ResolvedCheckOptions, io: CliIo): Promise<void> => {
 	const actionsDir = ".github/actions";
-	const sourceRootPath = resolve(options.output, options.sourceRoot);
 	await generate(
 		{
 			actionsDir,
 			output: options.output,
 			...(options.rootImportAlias === undefined ? {} : { rootImportAlias: options.rootImportAlias }),
 			sourceRoot: options.sourceRoot,
-			sources: [`${sourceRootPath}/**/*.ts`],
+			sources: [defaultSourceGlob(options.output, options.sourceRoot)],
 			workflowsDir: options.workflowsDir,
 		},
 		io,
@@ -476,27 +476,65 @@ const pathExists = async (path: string): Promise<boolean> => {
 	}
 };
 
-const resolveSourceFiles = async (sources: readonly string[]): Promise<readonly string[]> => {
-	const files = new Set<string>();
-	for (const source of sources) {
-		const matches = await globMatches(source);
-		if (matches.length === 0) {
-			throw new Error(`source pattern matched no files: ${source}`);
-		}
-		for (const match of matches) {
-			if (!isTestSourceFile(match)) {
-				files.add(match);
-			}
-		}
-	}
-	return [...files].sort();
+
+const resolveSourceFiles = async (
+    sources: readonly string[],
+    output: string,
+): Promise<readonly string[]> => {
+    const files = new Set<string>();
+
+    for (const source of sources) {
+        const matches = await globMatches(source, output);
+
+        if (matches.length === 0) {
+            throw new Error(`source pattern matched no files: ${source}`);
+        }
+
+        for (const match of matches) {
+            // Convert absolute Glob results to native filesystem paths.
+            const sourceFile = isAbsolute(match)
+                ? match.split("/").join(sep)
+                : match;
+
+            if (!isTestSourceFile(sourceFile)) {
+                files.add(sourceFile);
+            }
+        }
+    }
+
+    return [...files].sort();
 };
+
 
 const isTestSourceFile = (sourceFile: string): boolean =>
 	sourceFile.endsWith(".test.ts") || sourceFile.endsWith(".spec.ts");
 
-const globMatches = (source: string): Promise<readonly string[]> =>
-	glob(source, { absolute: isAbsolute(source) });
+
+/**
+ * Convert a native filesystem path into a Glob search pattern.
+ * Windows paths use "\", while Glob patterns use "/".
+ */
+const defaultSourceGlob = (
+    output: string,
+    sourceRoot: string,
+): string =>
+    `${resolve(output, sourceRoot).split(sep).join("/")}/**/*.ts`;
+
+
+
+const globMatches = (source: string, output: string): Promise<readonly string[]> => {
+    if (!isAbsolute(source)) {
+
+        return glob(source, { absolute: false });
+    }
+
+     const pattern = relative(output, source).split(sep).join("/");
+
+    return glob(pattern, {
+        cwd: output,
+        absolute: true,
+    });
+};
 
 const resolveGenerateOptions = async (options: GenerateOptions): Promise<ResolvedGenerateOptions> => {
 	const output = resolve(options.output);
@@ -516,7 +554,7 @@ const resolveGenerateOptions = async (options: GenerateOptions): Promise<Resolve
 		sourceRoot,
 		sources:
 			options.sources === undefined || options.sources.length === 0
-				? [`${resolve(output, sourceRoot)}/**/*.ts`]
+				? [defaultSourceGlob(output, sourceRoot)]
 				: options.sources,
 		workflowsDir: options.workflowsDir,
 	};

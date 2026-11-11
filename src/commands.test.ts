@@ -50,6 +50,43 @@ test("generate discovers exported actions from source files", async () => {
 	);
 });
 
+
+
+
+test("generate discovers sources from an absolute glob outside the current working directory", async () => {
+	const root = await mkdtemp(join(tmpdir(), "hollywood-cli-absolute-glob-"));
+	const sourcePath = join(root, "gha/nested/hello.ts");
+	const output: string[] = [];
+
+	await writeSource(sourcePath, [
+		"export const helloAction = {",
+		'  name: "hello",',
+		'  description: "Say hello.",',
+		"  inputs: {},",
+		"  outputs: {},",
+		"  run: async () => ({}),",
+		"};",
+		"",
+	]);
+
+	await generate(
+		{
+			actionsDir: ".github/actions",
+			output: root,
+			sourceRoot: "gha",
+			sources: [join(root, "gha/**/*.ts")],
+			workflowsDir: ".github/workflows",
+		},
+		{ writeOut: (message) => output.push(message) },
+	);
+
+	assert.deepEqual(output, [
+		"created\t.github/actions/hello/action.yml\n",
+		"created\t.github/actions/hello/src/index.ts\n",
+	]);
+});
+
+
 test("generate discovers exported workflows from globbed source files", async () => {
 	const root = await mkdtemp(join(tmpdir(), "hollywood-cli-"));
 	const sourcePath = join(root, "ci/containers/release.ts");
@@ -575,9 +612,7 @@ test("generate rejects sources without Hollywood exports", async () => {
 				},
 				{ writeOut: () => {} },
 			),
-			{
-			message: `no Hollywood actions or workflows exported by: ${sourcePath}`,
-			}
+			{message: `no Hollywood actions or workflows exported by: ${sourcePath}`,}
 	);
 });
 

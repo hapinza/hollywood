@@ -477,64 +477,49 @@ const pathExists = async (path: string): Promise<boolean> => {
 };
 
 
+
+
 const resolveSourceFiles = async (
-    sources: readonly string[],
-    output: string,
+	sources: readonly string[],
+	output: string,
 ): Promise<readonly string[]> => {
-    const files = new Set<string>();
-
-    for (const source of sources) {
-        const matches = await globMatches(source, output);
-
-        if (matches.length === 0) {
-            throw new Error(`source pattern matched no files: ${source}`);
-        }
-
-        for (const match of matches) {
-            // Convert absolute Glob results to native filesystem paths.
-            const sourceFile = isAbsolute(match)
-                ? match.split("/").join(sep)
-                : match;
-
-            if (!isTestSourceFile(sourceFile)) {
-                files.add(sourceFile);
-            }
-        }
-    }
-
-    return [...files].sort();
+	const files = new Set<string>();
+	for (const source of sources) {
+		const matches = await globMatches(source, output);
+		if (matches.length === 0) {
+			throw new Error(`source pattern matched no files: ${source}`);
+		}
+		for (const match of matches) {
+			const sourceFile = isAbsolute(match) ? match.split("/").join(sep) : match;
+			if (!isTestSourceFile(sourceFile)) {
+				files.add(sourceFile);
+			}
+		}
+	}
+	return [...files].sort();
 };
-
 
 const isTestSourceFile = (sourceFile: string): boolean =>
 	sourceFile.endsWith(".test.ts") || sourceFile.endsWith(".spec.ts");
 
-
-/**
- * Convert a native filesystem path into a Glob search pattern.
- * Windows paths use "\", while Glob patterns use "/".
- */
-const defaultSourceGlob = (
-    output: string,
-    sourceRoot: string,
-): string =>
-    `${resolve(output, sourceRoot).split(sep).join("/")}/**/*.ts`;
-
-
+/** Convert native filesystem paths to glob-compatible patterns. */
+const defaultSourceGlob = (output: string, sourceRoot: string): string =>
+	`${resolve(output, sourceRoot).split(sep).join("/")}/**/*.ts`;
 
 const globMatches = (source: string, output: string): Promise<readonly string[]> => {
-    if (!isAbsolute(source)) {
+	if (!isAbsolute(source)) {
+		return glob(source, { absolute: false });
+	}
 
-        return glob(source, { absolute: false });
-    }
-
-     const pattern = relative(output, source).split(sep).join("/");
-
-    return glob(pattern, {
-        cwd: output,
-        absolute: true,
-    });
+	// Resolve absolute glob patterns relative to the project directory.
+	const pattern = relative(output, source).split(sep).join("/");
+	return glob(pattern, {
+		cwd: output,
+		absolute: true,
+	});
 };
+
+
 
 const resolveGenerateOptions = async (options: GenerateOptions): Promise<ResolvedGenerateOptions> => {
 	const output = resolve(options.output);
